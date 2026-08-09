@@ -41,7 +41,7 @@
      result: list[dict[str, Any]] = []
      for row in candidates.itertuples(index=False):
          signal_ms = int(pd.Timestamp(row.signal_close).timestamp() * 1000)
-@@ -807,19 +812,49 @@
+@@ -807,19 +812,59 @@
          direction = int(row.direction)
          first_open = float(opens[idx])
          buffer = config.fill_buffer_bps / 10000.0
@@ -77,9 +77,19 @@
 +            if actual_risk_abs > 0
 +            else -math.inf
 +        )
++        # A mathematically better price can still be too close to structural
++        # invalidation. Allow at most 0.10R favorable drift toward the SL.
++        favorable_drift_r = (
++            direction * (planned - first_open) / planned_risk_abs
++            if planned_risk_abs > 0
++            else math.inf
++        )
++        stop_distance_preserved = actual_risk_abs >= planned_risk_abs * 0.90
 +        fill_ok = bool(
 +            price_ok
 +            and inside_contract
++            and favorable_drift_r <= 0.10 + 1e-12
++            and stop_distance_preserved
 +            and config.min_risk_pct <= risk_pct <= config.max_risk_pct
 +            and remaining_rr >= 2.0
          )
@@ -102,7 +112,7 @@
              if direction == 1:
                  stop_hits = np.flatnonzero(l <= stop)
                  target_hits = np.flatnonzero(h >= target)
-@@ -830,20 +865,20 @@
+@@ -830,20 +875,19 @@
              si = int(stop_hits[0]) if len(stop_hits) else sentinel
              ti = int(target_hits[0]) if len(target_hits) else sentinel
              if si == sentinel and ti == sentinel:
@@ -114,7 +124,6 @@
 +                gross_r = math.nan
 +                exit_time = pd.NaT
              elif si <= ti:
-+                # Conservative same-5m-bar ambiguity: SL first.
                  outcome = "stop"
                  gross_r = -1.0
 -                exit_offset = si
@@ -132,17 +141,21 @@
          else:
              outcome = "no_fill"
              gross_r = math.nan
-@@ -852,7 +887,9 @@
+@@ -852,7 +896,13 @@
              "candidate_id": row.candidate_id,
              "fill_ok": bool(fill_ok),
              "first_5m_open": first_open,
 +            "actual_entry": first_open if fill_ok else math.nan,
              "risk_pct": risk_pct,
 +            "remaining_rr_at_entry": remaining_rr,
++            "favorable_drift_r": favorable_drift_r,
++            "stop_distance_preserved_ratio": (
++                actual_risk_abs / planned_risk_abs if planned_risk_abs > 0 else math.nan
++            ),
              "stop": stop,
              "target": target,
              "outcome": outcome,
-@@ -1125,7 +1162,7 @@
+@@ -1125,7 +1175,7 @@
  def portfolio_select(frame: pd.DataFrame, threshold: float, cost_bps: float,
                       split_days: float, max_open: int = 10) -> pd.DataFrame:
      selected = frame[(frame["fill_ok"]) & (frame["probability"] >= threshold)].copy()
@@ -151,7 +164,7 @@
      selected = selected.sort_values(
          ["signal_close", "probability"], ascending=[True, False]
      )
-@@ -1279,8 +1316,8 @@
+@@ -1279,8 +1329,8 @@
                      )
                      hard_pass = bool(
                          frequency_eligible
@@ -162,7 +175,7 @@
                          and m.expectancy_r > 0
                          and m.wilson95_low_pct >= 50.0
                          and month_stats["active_months"] >= 2
-@@ -1449,17 +1486,17 @@
+@@ -1449,17 +1499,17 @@
      })
      historical_pass = bool(
          bool(chosen_row["validation_hard_pass"])
@@ -185,7 +198,7 @@
      )
  
      chosen = {
-@@ -1492,7 +1529,7 @@
+@@ -1492,7 +1542,7 @@
              ),
              "symbol_id_feature": False,
              "random_seed": RANDOM_SEED,
@@ -194,7 +207,7 @@
          },
      }
      search_df.to_csv(output / "parameter_search.csv", index=False)
-@@ -1548,7 +1585,7 @@
+@@ -1548,7 +1598,7 @@
          wins=("is_win", "sum"),
          targets=("outcome", lambda s: int((s == "target").sum())),
          stops=("outcome", lambda s: int((s == "stop").sum())),
