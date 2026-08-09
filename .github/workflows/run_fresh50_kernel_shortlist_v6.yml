@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'trigger/run-shortlist-v6-*'
-      - 'patch_shortlist_v6/**'
+      - 'patch_shortlist_v6b/**'
       - 'payload_kernel/**'
       - 'requirements.txt'
       - '.github/workflows/run_fresh50_kernel_shortlist_v6.yml'
@@ -29,7 +29,7 @@ jobs:
         run: |
           cat payload_kernel/part* | base64 --decode | gzip --decompress > fresh50_kernel_research.py
           echo '8dcdf66b63069d99838b6fcadb0298072bd743d12632ee6f113aaeaed1a53915  fresh50_kernel_research.py' | sha256sum --check
-          cat patch_shortlist_v6/part* | base64 --decode | gzip --decompress > shortlist_v6.patch
+          cat patch_shortlist_v6b/part* | base64 --decode | gzip --decompress > shortlist_v6.patch
           patch -p0 < shortlist_v6.patch
           echo 'a502d7e4958efc93d4aec5fc97eb1c547c07397e35363ef1b10532b93404c01a  fresh50_kernel_research.py' | sha256sum --check
 
