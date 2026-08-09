@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   PYTHONUNBUFFERED: '1'
@@ -65,3 +65,25 @@ jobs:
           path: research_output/
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Publish authoritative result to repository
+        if: always()
+        shell: bash
+        run: |
+          rm -rf published_result
+          mkdir -p published_result
+          if [ -d research_output ]; then
+            cp -a research_output/. published_result/
+          else
+            printf '%s\n' 'RUN_FAILED_BEFORE_OUTPUT' > published_result/WORKFLOW_FAILURE.txt
+          fi
+          printf '%s\n' '${{ job.status }}' > published_result/GITHUB_JOB_STATUS.txt
+          printf '%s\n' '${{ github.sha }}' > published_result/SOURCE_COMMIT_SHA.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > published_result/PUBLISHED_AT_UTC.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f published_result
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish Fresh50 independent causal research result'
+            git push
+          fi
