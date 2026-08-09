@@ -30,7 +30,7 @@ jobs:
           cat payload_kernel/part* | base64 --decode | gzip --decompress > fresh50_research.py
           echo '8dcdf66b63069d99838b6fcadb0298072bd743d12632ee6f113aaeaed1a53915  fresh50_research.py' | sha256sum --check
           patch -p0 < patch_rr2_v6/v3_to_rr2_v6.patch
-          echo '371f57b2462058eaedd1dcbffc17f3dd85673884548da33fcf7d207c0e43549c  fresh50_research.py' | sha256sum --check
+          echo '97b25ebf3260e6f6631bc07631610ea437b6533844dee77ade37d7b460ea4236  fresh50_research.py' | sha256sum --check
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -72,7 +72,9 @@ jobs:
           - Historical fill proxy is only the first next-5m open.
           - LONG fills only at planned entry or lower; SHORT only at planned entry or higher.
           - Actual entry must remain strictly between original SL and TP.
-          - Remaining RR at the actual entry must be >=2.00R.
+          - Remaining RR at actual entry must be >=2.00R.
+          - Favorable price drift toward structural SL is capped at 0.10R.
+          - At least 90% of the original entry-to-SL distance must remain.
           - If price moved away, crossed the contract, or is too close to SL: NO TRADE.
           - No later retrace, no stale touch, no retry.
           - Target +2R, stop -1R; no timeout exit.
