@@ -4,7 +4,8 @@ on:
   pull_request:
     paths:
       - 'trigger/run-profit-v4-*'
-      - 'payload_profit_v4/**'
+      - 'patch_profit_v4/**'
+      - 'payload_kernel/**'
       - 'requirements.txt'
       - '.github/workflows/run_fresh50_kernel_profit_v4.yml'
   workflow_dispatch:
@@ -23,10 +24,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct profit-first kernel runner
+      - name: Reconstruct and verify profit-first kernel runner
         shell: bash
         run: |
-          cat payload_profit_v4/part* | base64 --decode | gzip --decompress > fresh50_research.py
+          cat payload_kernel/part* | base64 --decode | gzip --decompress > fresh50_kernel_research.py
+          echo '8dcdf66b63069d99838b6fcadb0298072bd743d12632ee6f113aaeaed1a53915  fresh50_kernel_research.py' | sha256sum --check
+          cat patch_profit_v4/part* | base64 --decode | gzip --decompress > v3_to_v4.patch
+          patch -p0 < v3_to_v4.patch
+          test -f fresh50_research.py
           echo '3aae12f297f1f3ea0c66ddce2ea4ad5801861cc9fd6e767d37be74a03fb561de  fresh50_research.py' | sha256sum --check
 
       - name: Setup Python
