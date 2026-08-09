@@ -1,0 +1,2 @@
+Trigger Fresh50 V3 monthly walk-forward raw-candle research.
+Each test month may use only its preceding 120-day training and 45-day calibration windows.
