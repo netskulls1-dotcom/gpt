@@ -1,0 +1,2 @@
+Trigger corrected Fresh50 V3 monthly walk-forward raw-candle research.
+Verified payload SHA: 72286ea54a710eb3c484b2b4e248017898039731f434bf654d3a28964aab6ee5.
