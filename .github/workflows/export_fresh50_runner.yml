@@ -1,0 +1,32 @@
+name: Export Fresh50 Research Runner
+
+on:
+  pull_request:
+    paths:
+      - 'export_trigger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct runner
+        shell: bash
+        run: |
+          mkdir -p runner_export
+          cat payload/part* | base64 --decode | gzip --decompress > runner_export/fresh50_research.py
+          echo '56bd2328b9a868deb41adf51c01693548ed87177a61672b6c7eec9b590ef68e8  runner_export/fresh50_research.py' | sha256sum --check
+          cp requirements.txt runner_export/requirements.txt
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh50-runner-source
+          path: runner_export/
+          retention-days: 7
