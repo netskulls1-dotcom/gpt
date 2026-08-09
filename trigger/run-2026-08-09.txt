@@ -1,0 +1,2 @@
+Trigger independent raw-candle Binance Top-50 causal research.
+No old V20663 PREENTRY, candidate trace, or historical trade rows may be used.
