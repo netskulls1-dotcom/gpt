@@ -8,7 +8,7 @@ on:
       - '.github/workflows/run_fresh50_research.yml'
   pull_request:
     paths:
-      - 'trigger/**'
+      - 'trigger/run-*'
       - 'payload/**'
       - 'requirements.txt'
       - '.github/workflows/run_fresh50_research.yml'
