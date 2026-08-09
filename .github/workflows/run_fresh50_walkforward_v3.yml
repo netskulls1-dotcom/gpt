@@ -1,0 +1,73 @@
+name: Fresh50 V3 Monthly Walk-Forward Research
+
+on:
+  push:
+    paths:
+      - 'payload_v3/**'
+      - '.github/workflows/run_fresh50_walkforward_v3.yml'
+  pull_request:
+    paths:
+      - 'trigger/run-v3-*'
+      - 'payload_v3/**'
+      - '.github/workflows/run_fresh50_walkforward_v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  walkforward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct V2 raw-candle base and V3 walk-forward runner
+        shell: bash
+        run: |
+          cat payload_v2/part* | base64 --decode | gzip --decompress > fresh50_research.py
+          echo '8e83628ca631f01f8f8e01000674173a3e1254fb548c770c852da84bb8da3466  fresh50_research.py' | sha256sum --check
+          cat payload_v3/part* | base64 --decode | gzip --decompress > fresh50_walkforward_v3.py
+          echo '72286ea54a710eb3c484b2b4e248017898039731f434bf654d3a28964aab6ee5  fresh50_walkforward_v3.py' | sha256sum --check
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Restore Binance candle cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/binance_5m
+          key: fresh50-binance-5m-v1
+
+      - name: V3 offline self-test
+        run: python fresh50_walkforward_v3.py --self-test
+
+      - name: Run V3 exact Top-50 monthly walk-forward
+        run: >-
+          python fresh50_walkforward_v3.py
+          --output walkforward_output
+          --cache .cache/binance_5m
+          --evaluation-days 365
+          --warmup-days 70
+          --oversample 75
+          --download-workers 8
+          --candle-cut-samples 16
+
+      - name: Upload full V3 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh50-walkforward-v3
+          path: walkforward_output/
+          if-no-files-found: warn
+          retention-days: 30
