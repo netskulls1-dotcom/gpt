@@ -1,0 +1,68 @@
+name: Fresh50 Kernel Profit V4 Research
+
+on:
+  pull_request:
+    paths:
+      - 'trigger/run-profit-v4-*'
+      - 'payload_profit_v4/**'
+      - 'requirements.txt'
+      - '.github/workflows/run_fresh50_kernel_profit_v4.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct profit-first kernel runner
+        shell: bash
+        run: |
+          cat payload_profit_v4/part* | base64 --decode | gzip --decompress > fresh50_research.py
+          echo '3aae12f297f1f3ea0c66ddce2ea4ad5801861cc9fd6e767d37be74a03fb561de  fresh50_research.py' | sha256sum --check
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Restore Binance candle cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/binance_5m
+          key: fresh50-binance-5m-v1
+
+      - name: Offline self-test
+        run: python fresh50_research.py --self-test
+
+      - name: Run one-year monthly-profit proper-RR research
+        run: >-
+          python fresh50_research.py
+          --output research_output
+          --cache .cache/binance_5m
+          --evaluation-days 365
+          --warmup-days 70
+          --oversample 75
+          --download-workers 8
+          --candle-cut-samples 24
+
+      - name: Upload full profit V4 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh50-kernel-profit-v4
+          path: research_output/
+          if-no-files-found: warn
+          retention-days: 30
