@@ -1,15 +1,15 @@
-name: Fresh50 Independent Causal Research
+name: Fresh50 V2 Independent Causal Research
 
 on:
   push:
     paths:
-      - 'payload/**'
+      - 'payload_v2/**'
       - 'requirements.txt'
       - '.github/workflows/run_fresh50_research.yml'
   pull_request:
     paths:
-      - 'trigger/run-*'
-      - 'payload/**'
+      - 'trigger/run-v2-*'
+      - 'payload_v2/**'
       - 'requirements.txt'
       - '.github/workflows/run_fresh50_research.yml'
   workflow_dispatch:
@@ -28,11 +28,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct independently tested runner
+      - name: Reconstruct frequency-safe independently tested runner
         shell: bash
         run: |
-          cat payload/part* | base64 --decode | gzip --decompress > fresh50_research.py
-          echo '56bd2328b9a868deb41adf51c01693548ed87177a61672b6c7eec9b590ef68e8  fresh50_research.py' | sha256sum --check
+          cat payload_v2/part* | base64 --decode | gzip --decompress > fresh50_research.py
+          echo '8e83628ca631f01f8f8e01000674173a3e1254fb548c770c852da84bb8da3466  fresh50_research.py' | sha256sum --check
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -52,7 +52,7 @@ jobs:
       - name: Offline self-test
         run: python fresh50_research.py --self-test
 
-      - name: Run exact Top-50 research
+      - name: Run exact Top-50 V2 research
         run: >-
           python fresh50_research.py
           --output research_output
@@ -63,33 +63,33 @@ jobs:
           --download-workers 8
           --candle-cut-samples 16
 
-      - name: Upload full research artifact
+      - name: Upload full V2 research artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fresh50-independent-research
+          name: fresh50-independent-research-v2
           path: research_output/
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Publish authoritative result to repository
+      - name: Publish authoritative V2 result to repository
         if: always() && github.event_name == 'push'
         shell: bash
         run: |
-          rm -rf published_result
-          mkdir -p published_result
+          rm -rf published_result_v2
+          mkdir -p published_result_v2
           if [ -d research_output ]; then
-            cp -a research_output/. published_result/
+            cp -a research_output/. published_result_v2/
           else
-            printf '%s\n' 'RUN_FAILED_BEFORE_OUTPUT' > published_result/WORKFLOW_FAILURE.txt
+            printf '%s\n' 'RUN_FAILED_BEFORE_OUTPUT' > published_result_v2/WORKFLOW_FAILURE.txt
           fi
-          printf '%s\n' '${{ job.status }}' > published_result/GITHUB_JOB_STATUS.txt
-          printf '%s\n' '${{ github.sha }}' > published_result/SOURCE_COMMIT_SHA.txt
-          date -u +'%Y-%m-%dT%H:%M:%SZ' > published_result/PUBLISHED_AT_UTC.txt
+          printf '%s\n' '${{ job.status }}' > published_result_v2/GITHUB_JOB_STATUS.txt
+          printf '%s\n' '${{ github.sha }}' > published_result_v2/SOURCE_COMMIT_SHA.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > published_result_v2/PUBLISHED_AT_UTC.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -f published_result
+          git add -f published_result_v2
           if ! git diff --cached --quiet; then
-            git commit -m 'Publish Fresh50 independent causal research result'
+            git commit -m 'Publish Fresh50 V2 independent causal research result'
             git push
           fi
