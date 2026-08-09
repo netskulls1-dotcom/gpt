@@ -1,0 +1,72 @@
+name: Fresh50 Kernel Proper-RR Shortlist V6
+
+on:
+  pull_request:
+    paths:
+      - 'trigger/run-shortlist-v6-*'
+      - 'patch_shortlist_v6/**'
+      - 'payload_kernel/**'
+      - 'requirements.txt'
+      - '.github/workflows/run_fresh50_kernel_shortlist_v6.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct and verify V6 runner
+        shell: bash
+        run: |
+          cat payload_kernel/part* | base64 --decode | gzip --decompress > fresh50_kernel_research.py
+          echo '8dcdf66b63069d99838b6fcadb0298072bd743d12632ee6f113aaeaed1a53915  fresh50_kernel_research.py' | sha256sum --check
+          cat patch_shortlist_v6/part* | base64 --decode | gzip --decompress > shortlist_v6.patch
+          patch -p0 < shortlist_v6.patch
+          echo 'a502d7e4958efc93d4aec5fc97eb1c547c07397e35363ef1b10532b93404c01a  fresh50_kernel_research.py' | sha256sum --check
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Restore Binance candle cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/binance_5m
+          key: fresh50-binance-5m-v1
+
+      - name: Offline self-test
+        run: python fresh50_kernel_research.py --self-test
+
+      - name: Run one-year proper-RR shortlist research
+        run: >-
+          python fresh50_kernel_research.py
+          --output research_output
+          --cache .cache/binance_5m
+          --evaluation-days 365
+          --warmup-days 70
+          --oversample 75
+          --download-workers 8
+          --candle-cut-samples 32
+
+      - name: Upload full V6 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh50-kernel-shortlist-v6
+          path: research_output/
+          if-no-files-found: warn
+          retention-days: 30
