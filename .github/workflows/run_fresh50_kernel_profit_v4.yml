@@ -31,7 +31,7 @@ jobs:
           echo '8dcdf66b63069d99838b6fcadb0298072bd743d12632ee6f113aaeaed1a53915  fresh50_kernel_research.py' | sha256sum --check
           cat patch_profit_v4/part* | base64 --decode | gzip --decompress > v3_to_v4.patch
           patch -p0 < v3_to_v4.patch
-          test -f fresh50_research.py
+          mv fresh50_kernel_research.py fresh50_research.py
           echo '3aae12f297f1f3ea0c66ddce2ea4ad5801861cc9fd6e767d37be74a03fb561de  fresh50_research.py' | sha256sum --check
 
       - name: Setup Python
