@@ -1,0 +1,1 @@
+Run Fresh50 exact-time 2R V6 research. No future candle, no timeout exit, no delayed retrace, actual entry remaining RR >=2.00R.
