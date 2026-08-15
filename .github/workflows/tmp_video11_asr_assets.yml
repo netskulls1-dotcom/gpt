@@ -1,0 +1,43 @@
+name: Temporary Video 11 ASR Assets
+
+on:
+  push:
+    branches:
+      - tmp-video11-asr-assets-20260815
+    paths:
+      - '.github/workflows/tmp_video11_asr_assets.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Prepare offline Vosk assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bundle/models
+          python -m pip download --no-deps 'vosk==0.3.45' -d bundle
+          curl -fL --retry 5 --retry-delay 2 \
+            -o /tmp/vosk-model-small-en-in-0.4.zip \
+            'https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip'
+          curl -fL --retry 5 --retry-delay 2 \
+            -o /tmp/vosk-model-small-en-us-0.15.zip \
+            'https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip'
+          unzip -q /tmp/vosk-model-small-en-in-0.4.zip -d bundle/models
+          unzip -q /tmp/vosk-model-small-en-us-0.15.zip -d bundle/models
+          find bundle -maxdepth 3 -type f | sort > bundle/CONTENTS.txt
+          sha256sum bundle/*.whl > bundle/SHA256SUMS.txt
+          du -sh bundle bundle/models/*
+
+      - name: Upload offline ASR bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: video11-vosk-assets
+          path: bundle/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
