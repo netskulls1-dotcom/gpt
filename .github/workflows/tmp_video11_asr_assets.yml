@@ -1,4 +1,4 @@
-name: Temporary Video 11 ASR Assets
+name: Temporary Video 11 Whisper Model
 
 on:
   push:
@@ -15,29 +15,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Prepare offline Vosk assets
+      - name: Download and verify whisper.cpp small q5_1 model
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p bundle/models
-          python -m pip download --no-deps 'vosk==0.3.45' -d bundle
+          mkdir -p bundle
           curl -fL --retry 5 --retry-delay 2 \
-            -o /tmp/vosk-model-small-en-in-0.4.zip \
-            'https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip'
-          curl -fL --retry 5 --retry-delay 2 \
-            -o /tmp/vosk-model-small-en-us-0.15.zip \
-            'https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip'
-          unzip -q /tmp/vosk-model-small-en-in-0.4.zip -d bundle/models
-          unzip -q /tmp/vosk-model-small-en-us-0.15.zip -d bundle/models
-          find bundle -maxdepth 3 -type f | sort > bundle/CONTENTS.txt
-          sha256sum bundle/*.whl > bundle/SHA256SUMS.txt
-          du -sh bundle bundle/models/*
+            -o bundle/ggml-small-q5_1.bin \
+            'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin'
+          echo 'ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb  bundle/ggml-small-q5_1.bin' | sha256sum --check
+          stat -c '%n %s bytes' bundle/ggml-small-q5_1.bin
 
-      - name: Upload offline ASR bundle
+      - name: Upload whisper model artifact
         uses: actions/upload-artifact@v4
         with:
-          name: video11-vosk-assets
-          path: bundle/
+          name: video11-whisper-small-q5_1
+          path: bundle/ggml-small-q5_1.bin
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
