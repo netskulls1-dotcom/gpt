@@ -1,0 +1,106 @@
+name: R114 Exact Two-Month Top50 Backtest
+
+on:
+  push:
+    branches:
+      - r114-2m-backtest-20260822
+    paths:
+      - '.github/workflows/run_r114_2m_filebin.yml'
+      - 'trigger/r114_2m_filebin_run.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download and verify exact R114 runner
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf runner r114_minified.tar.xz
+          curl --fail --location --retry 8 --retry-all-errors --retry-delay 5 \
+            'https://filebin.net/r114backtest20260822/r114_minified.tar.xz' \
+            -o r114_minified.tar.xz
+          echo '57a50d3c94870fda8f4773c464662ec093b93e891d987453be120c281f61d8cf  r114_minified.tar.xz' | sha256sum --check
+          mkdir runner
+          tar -xJf r114_minified.tar.xz -C runner
+          test -f runner/tools/run_r114_two_month_backtest_first.py
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
+          if [ -s runner/requirements.txt ]; then
+            python -m pip install -r runner/requirements.txt
+          fi
+          python -m pip install requests numpy pandas
+
+      - name: Restore Binance public-data cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            runner/data_r114_2m_raw
+            runner/data_r114_2m_normalized
+          key: r114-2m-binance-public-v3-${{ runner.os }}
+          restore-keys: |
+            r114-2m-binance-public-v3-
+
+      - name: Run unchanged R114 two-month Top-50 backtest
+        working-directory: runner
+        shell: bash
+        run: |
+          set -o pipefail
+          python tools/run_r114_two_month_backtest_first.py all --basket-mode eligible 2>&1 | tee ../r114_backtest_console.log
+
+      - name: Collect evidence and result files
+        if: always()
+        shell: bash
+        run: |
+          rm -rf published_r114_2m_stage
+          mkdir -p published_r114_2m_stage/output
+          cp r114_backtest_console.log published_r114_2m_stage/console.log 2>/dev/null || true
+          cp -a runner/evidence/r114_2month_top50/eligible/. published_r114_2m_stage/ 2>/dev/null || true
+          cp -a runner/output_r114_2m_eligible/. published_r114_2m_stage/output/ 2>/dev/null || true
+          printf '%s\n' '${{ job.status }}' > published_r114_2m_stage/GITHUB_JOB_STATUS.txt
+          printf '%s\n' '${{ github.sha }}' > published_r114_2m_stage/SOURCE_COMMIT_SHA.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > published_r114_2m_stage/PUBLISHED_AT_UTC.txt
+          find published_r114_2m_stage -maxdepth 4 -type f -printf '%p %s bytes\n' | sort > published_r114_2m_stage/FILE_LIST.txt
+
+      - name: Upload full evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r114-exact-two-month-top50-backtest
+          path: published_r114_2m_stage/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish result on the temporary branch
+        if: always()
+        shell: bash
+        run: |
+          rm -rf published_r114_2m
+          mv published_r114_2m_stage published_r114_2m
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f published_r114_2m
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish exact R114 two-month Top-50 backtest result'
+            git push
+          fi
