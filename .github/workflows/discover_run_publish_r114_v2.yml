@@ -1,0 +1,170 @@
+name: Discover Run Publish R114 V2
+
+on:
+  push:
+    branches:
+      - photon-r114f-six-tf-rest-pilot-20260822
+    paths:
+      - '.github/workflows/discover_run_publish_r114_v2.yml'
+      - 'trigger/discover_run_publish_r114_v2.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  r114:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Discover package, run backtest, parse result
+        id: engine
+        shell: bash
+        run: |
+          set +e
+          rm -rf r114_v2_work published_r114_v2
+          mkdir -p r114_v2_work/candidates published_r114_v2/output published_r114_v2/discovery
+          find . -maxdepth 6 -type f -printf '%p %s bytes\n' | sort > published_r114_v2/discovery/repository_inventory.txt
+
+          runner_script="$(find . -type f -path '*/tools/run_r114_two_month_backtest_first.py' -print -quit)"
+          candidate=0
+          if [ -z "$runner_script" ]; then
+            while IFS= read -r first_part; do
+              src_dir="$(dirname "$first_part")"
+              candidate=$((candidate+1))
+              out="r114_v2_work/candidates/candidate_${candidate}"
+              mkdir -p "$out/extracted"
+              find "$src_dir" -maxdepth 1 -type f -name 'part*' -print0 | sort -z -V | xargs -0 cat > "$out/joined.txt" 2>/dev/null
+              base64 --decode "$out/joined.txt" > "$out/payload.bin" 2>"$out/base64_error.txt"
+              if [ $? -ne 0 ]; then continue; fi
+              file "$out/payload.bin" > "$out/file_type.txt" 2>&1
+              tar -xJf "$out/payload.bin" -C "$out/extracted" 2>"$out/tar_xz_error.txt" || \
+              tar -xzf "$out/payload.bin" -C "$out/extracted" 2>"$out/tar_gz_error.txt" || \
+              tar -xf "$out/payload.bin" -C "$out/extracted" 2>"$out/tar_error.txt" || \
+              unzip -q "$out/payload.bin" -d "$out/extracted" 2>"$out/unzip_error.txt"
+              runner_script="$(find "$out/extracted" -type f -path '*/tools/run_r114_two_month_backtest_first.py' -print -quit)"
+              if [ -n "$runner_script" ]; then break; fi
+            done < <(find . -type f \( -name 'part00' -o -name 'part000' \) | sort -V)
+          fi
+
+          run_rc=90
+          runner_root=''
+          if [ -n "$runner_script" ]; then
+            runner_root="$(cd "$(dirname "$runner_script")/.." && pwd)"
+            echo "$runner_script" > published_r114_v2/discovery/runner_script.txt
+            echo "$runner_root" > published_r114_v2/discovery/runner_root.txt
+            echo RUNNER_FOUND > published_r114_v2/discovery/status.txt
+            python -m pip install --upgrade pip > published_r114_v2/pip.log 2>&1
+            if [ -s "$runner_root/requirements.txt" ]; then python -m pip install -r "$runner_root/requirements.txt" >> published_r114_v2/pip.log 2>&1; fi
+            python -m pip install requests numpy pandas >> published_r114_v2/pip.log 2>&1
+            cd "$runner_root"
+            python tools/run_r114_two_month_backtest_first.py all --basket-mode eligible > "$GITHUB_WORKSPACE/published_r114_v2/console.log" 2>&1
+            run_rc=$?
+            cd "$GITHUB_WORKSPACE"
+            cp -a "$runner_root/evidence/r114_2month_top50/eligible/." published_r114_v2/ 2>/dev/null
+            cp -a "$runner_root/output_r114_2m_eligible/." published_r114_v2/output/ 2>/dev/null
+          else
+            echo RUNNER_NOT_FOUND > published_r114_v2/discovery/status.txt
+            find r114_v2_work/candidates -maxdepth 5 -type f -printf '%p %s bytes\n' | sort > published_r114_v2/discovery/reconstruction_inventory.txt
+          fi
+          echo "$run_rc" > published_r114_v2/RUN_EXIT_CODE.txt
+
+          python - <<'PY'
+          from pathlib import Path
+          import csv, re, json
+          root=Path('published_r114_v2')
+          summary_files=list(root.rglob('R114_2M_BACKTEST_RESULT_SUMMARY.txt'))
+          summary=summary_files[0].read_text(errors='replace') if summary_files else ''
+          values={'status':'NO_SUMMARY','accuracy':None,'trades':None,'wins':None,'losses':None,'net_r':None,'max_drawdown_r':None}
+          if summary:
+              values['status']='SUMMARY_FOUND'
+              patterns={
+                'accuracy':[r'(?i)(?:accuracy|win\s*rate)\s*[:=]\s*([0-9]+(?:\.[0-9]+)?)\s*%'],
+                'trades':[r'(?i)(?:settled\s*trades|total\s*trades|trades)\s*[:=]\s*([0-9]+)'],
+                'wins':[r'(?i)wins\s*[:=]\s*([0-9]+)'],
+                'losses':[r'(?i)loss(?:es)?\s*[:=]\s*([0-9]+)'],
+                'net_r':[r'(?i)net\s*(?:profit\s*)?r\s*[:=]\s*([-+]?[0-9]+(?:\.[0-9]+)?)'],
+                'max_drawdown_r':[r'(?i)max(?:imum)?\s*drawdown(?:\s*r)?\s*[:=]\s*([-+]?[0-9]+(?:\.[0-9]+)?)'],
+              }
+              for k,ps in patterns.items():
+                  for p in ps:
+                      m=re.search(p,summary)
+                      if m:
+                          values[k]=float(m.group(1)) if k not in ('trades','wins','losses') else int(m.group(1)); break
+          trades_files=[p for p in root.rglob('trades.csv') if p.is_file()]
+          if trades_files and (values['accuracy'] is None or values['trades'] is None):
+              try:
+                  with trades_files[0].open(newline='',errors='replace') as f: rows=list(csv.DictReader(f))
+                  settled=[]
+                  for r in rows:
+                      s=' '.join(str(v) for v in r.values()).upper()
+                      if any(x in s for x in ('WIN','TP','LOSS','SL')): settled.append(r)
+                  if settled:
+                      wins=sum(1 for r in settled if ('WIN' in ' '.join(str(v) for v in r.values()).upper() or 'TP' in ' '.join(str(v) for v in r.values()).upper()) and not ('LOSS' in ' '.join(str(v) for v in r.values()).upper() or 'SL' in ' '.join(str(v) for v in r.values()).upper()))
+                      values['trades']=len(settled); values['wins']=wins; values['losses']=len(settled)-wins; values['accuracy']=100*wins/len(settled)
+              except Exception as e:
+                  (root/'PARSE_ERROR.txt').write_text(repr(e))
+          (root/'RESULT_VALUES.json').write_text(json.dumps(values,indent=2,sort_keys=True))
+          def fmt(v): return 'NA' if v is None else (f'{v:.4f}' if isinstance(v,float) else str(v))
+          line=f"R114_RESULT status={values['status']} accuracy_pct={fmt(values['accuracy'])} trades={fmt(values['trades'])} wins={fmt(values['wins'])} losses={fmt(values['losses'])} net_r={fmt(values['net_r'])} max_dd_r={fmt(values['max_drawdown_r'])}"
+          (root/'RESULT_ONE_LINE.txt').write_text(line+'\n')
+          # Minimal valid one-page PDF containing the result, for easy inspection.
+          safe=line.replace('\\','\\\\').replace('(','\\(').replace(')','\\)')[:1500]
+          stream=f"BT /F1 10 Tf 36 760 Td ({safe}) Tj ET".encode('latin-1','replace')
+          objs=[b'1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n',b'2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n',b'3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 1200 800] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >> endobj\n',f'4 0 obj << /Length {len(stream)} >> stream\n'.encode()+stream+b'\nendstream endobj\n',b'5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n']
+          pdf=bytearray(b'%PDF-1.4\n'); offsets=[0]
+          for o in objs: offsets.append(len(pdf)); pdf.extend(o)
+          x=len(pdf); pdf.extend(f'xref\n0 {len(objs)+1}\n0000000000 65535 f \n'.encode())
+          for off in offsets[1:]: pdf.extend(f'{off:010d} 00000 n \n'.encode())
+          pdf.extend(f'trailer << /Size {len(objs)+1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n'.encode())
+          (root/'ACTUAL_RESULT.pdf').write_bytes(pdf)
+          PY
+
+          printf '%s\n' '${{ github.sha }}' > published_r114_v2/SOURCE_COMMIT_SHA.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > published_r114_v2/PUBLISHED_AT_UTC.txt
+          find published_r114_v2 -maxdepth 5 -type f -printf '%p %s bytes\n' | sort > published_r114_v2/FILE_LIST.txt
+          result_line="$(cat published_r114_v2/RESULT_ONE_LINE.txt 2>/dev/null || echo R114_RESULT status=NO_RESULT)"
+          echo "result_line=$result_line" >> "$GITHUB_OUTPUT"
+          echo "$result_line"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r114-v2-two-month-top50
+          path: published_r114_v2/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish dynamic result commit
+        if: always()
+        shell: bash
+        run: |
+          result_line="$(cat published_r114_v2/RESULT_ONE_LINE.txt 2>/dev/null || echo R114_RESULT status=NO_RESULT)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f published_r114_v2
+          if ! git diff --cached --quiet; then
+            git commit -m "$result_line"
+            git push
+          fi
+
+      - name: Create result issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          result_line="$(cat published_r114_v2/RESULT_ONE_LINE.txt 2>/dev/null || echo R114_RESULT status=NO_RESULT)"
+          body="$(cat published_r114_v2/RESULT_VALUES.json 2>/dev/null || true)"
+          gh issue create --title "$result_line" --body "Automated exact R114 two-month Top-50 backtest result.\n\n\`\`\`json\n$body\n\`\`\`" || true
