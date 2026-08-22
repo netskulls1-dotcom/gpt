@@ -1,0 +1,1 @@
+Trigger corrected V6 proper-RR shortlist run using patch_shortlist_v6b small chunks.
