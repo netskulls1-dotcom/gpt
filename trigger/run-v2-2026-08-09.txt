@@ -1,0 +1,2 @@
+Trigger Fresh50 V2 independent one-year raw-candle research.
+Frequency-safe selection: no tiny perfect samples, no old V20663 rows, no delayed retrace entry.
