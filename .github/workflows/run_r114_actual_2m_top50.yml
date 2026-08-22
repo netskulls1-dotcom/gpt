@@ -1,0 +1,127 @@
+name: R114 Actual 2M Top50 Backtest
+
+on:
+  push:
+    branches:
+      - r114-2m-backtest-20260822
+    paths:
+      - '.github/workflows/run_r114_actual_2m_top50.yml'
+      - 'payload_r114/**'
+      - 'trigger_r114/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+
+jobs:
+  backtest:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout R114 branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct and verify R114 package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = Get-ChildItem -Path 'payload_r114' -File | Sort-Object Name
+          if (-not $parts -or $parts.Count -lt 2) { throw 'payload_r114 parts missing' }
+          $b64 = (($parts | ForEach-Object { (Get-Content $_.FullName -Raw).Trim() }) -join '')
+          $bytes = [Convert]::FromBase64String($b64)
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'r114.zip'), $bytes)
+          $sig = [Text.Encoding]::ASCII.GetString($bytes[0..1])
+          if ($sig -ne 'PK') { throw "Reconstructed payload is not a ZIP; signature=$sig" }
+          Get-FileHash 'r114.zip' -Algorithm SHA256 | Format-List
+          New-Item -ItemType Directory -Path 'r114_work' -Force | Out-Null
+          Expand-Archive -Path 'r114.zip' -DestinationPath 'r114_work' -Force
+          Get-ChildItem 'r114_work' -Recurse -File | Select-Object FullName,Length | Out-File 'package_file_list.txt' -Width 4096
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: '**/requirements*.txt'
+
+      - name: Install package requirements
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --upgrade pip
+          $reqs = Get-ChildItem -Path 'r114_work' -Recurse -File -Include 'requirements.txt','requirements-*.txt' | Sort-Object FullName -Unique
+          if ($reqs) {
+            foreach ($req in $reqs) {
+              Write-Host "Installing $($req.FullName)"
+              python -m pip install -r $req.FullName
+            }
+          } else {
+            python -m pip install pandas numpy requests urllib3
+          }
+
+      - name: Run exact packaged 2-month Top-50 backtest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bat = Get-ChildItem -Path 'r114_work' -Recurse -File -Filter 'R114_2M_00_RUN_BACKTEST_FIRST.bat' | Select-Object -First 1
+          if (-not $bat) { throw 'R114_2M_00_RUN_BACKTEST_FIRST.bat not found in package' }
+          Write-Host "Running exact package entrypoint: $($bat.FullName)"
+          Set-Location $bat.DirectoryName
+          cmd.exe /d /c "`"$($bat.FullName)`"" 2>&1 | Tee-Object -FilePath (Join-Path $env:GITHUB_WORKSPACE 'r114_console.log')
+          if ($LASTEXITCODE -ne 0) { throw "Backtest BAT failed with exit code $LASTEXITCODE" }
+
+      - name: Collect authoritative outputs
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          New-Item -ItemType Directory -Path 'r114_published_result' -Force | Out-Null
+          Copy-Item 'package_file_list.txt' 'r114_published_result/package_file_list.txt' -Force -ErrorAction SilentlyContinue
+          Copy-Item 'r114_console.log' 'r114_published_result/r114_console.log' -Force -ErrorAction SilentlyContinue
+          $patterns = @(
+            'R114_2M_BACKTEST_RESULT_SUMMARY.txt',
+            'trades.csv',
+            'monthly.csv',
+            'modules_non_additive.csv',
+            'symbols.csv',
+            '*.json',
+            '*audit*.csv',
+            '*audit*.txt',
+            '*summary*.txt'
+          )
+          foreach ($pattern in $patterns) {
+            Get-ChildItem -Path 'r114_work' -Recurse -File -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+              $relative = $_.FullName.Substring((Resolve-Path 'r114_work').Path.Length).TrimStart('\','/')
+              $safe = $relative -replace '[\\/:*?"<>|]', '__'
+              Copy-Item $_.FullName (Join-Path 'r114_published_result' $safe) -Force
+            }
+          }
+          Get-ChildItem 'r114_published_result' -File | Select-Object Name,Length | Sort-Object Name | Format-Table -AutoSize | Out-String | Set-Content 'r114_published_result/COLLECTED_FILES.txt'
+
+      - name: Upload complete result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r114-actual-2m-top50-backtest-result
+          path: |
+            r114_published_result/
+            r114_console.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish compact result to branch
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f r114_published_result
+          if (-not (git diff --cached --quiet)) {
+            git commit -m 'Publish R114 actual 2-month Top-50 backtest result'
+            git push origin HEAD:r114-2m-backtest-20260822
+          }
