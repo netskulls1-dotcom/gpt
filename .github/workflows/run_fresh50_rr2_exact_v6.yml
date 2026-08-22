@@ -1,0 +1,91 @@
+name: Fresh50 Exact-Time 2R Causal Research
+
+on:
+  pull_request:
+    paths:
+      - 'trigger/run-rr2-v6-*'
+      - 'patch_rr2_v6/**'
+      - 'payload_kernel/**'
+      - 'requirements.txt'
+      - '.github/workflows/run_fresh50_rr2_exact_v6.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct strict exact-time 2R runner
+        shell: bash
+        run: |
+          cat payload_kernel/part* | base64 --decode | gzip --decompress > fresh50_research.py
+          echo '8dcdf66b63069d99838b6fcadb0298072bd743d12632ee6f113aaeaed1a53915  fresh50_research.py' | sha256sum --check
+          patch -p0 < patch_rr2_v6/v3_to_rr2_v6.patch
+          echo '97b25ebf3260e6f6631bc07631610ea437b6533844dee77ade37d7b460ea4236  fresh50_research.py' | sha256sum --check
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Restore Binance candle cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/binance_5m
+          key: fresh50-binance-5m-v1
+
+      - name: Offline self-test
+        run: python fresh50_research.py --self-test
+
+      - name: Run one-year exact-time 2R research
+        run: >-
+          python fresh50_research.py
+          --output research_output
+          --cache .cache/binance_5m
+          --evaluation-days 365
+          --warmup-days 70
+          --oversample 75
+          --download-workers 8
+          --candle-cut-samples 32
+
+      - name: Add exact-entry contract summary
+        if: always()
+        shell: bash
+        run: |
+          cat > research_output/EXACT_ENTRY_CONTRACT.txt <<'EOF'
+          STRICT ENTRY CONTRACT
+          - Signal uses completed candle only.
+          - Planned entry/SL/TP are frozen at signal close.
+          - Historical fill proxy is only the first next-5m open.
+          - LONG fills only at planned entry or lower; SHORT only at planned entry or higher.
+          - Actual entry must remain strictly between original SL and TP.
+          - Remaining RR at actual entry must be >=2.00R.
+          - Favorable price drift toward structural SL is capped at 0.10R.
+          - At least 90% of the original entry-to-SL distance must remain.
+          - If price moved away, crossed the contract, or is too close to SL: NO TRADE.
+          - No later retrace, no stale touch, no retry.
+          - Target +2R, stop -1R; no timeout exit.
+          - First chronological TP/SL touch decides; same 5m bar is SL first.
+          EOF
+
+      - name: Upload full exact-time 2R artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh50-exact-time-2r-v6
+          path: research_output/
+          if-no-files-found: warn
+          retention-days: 30

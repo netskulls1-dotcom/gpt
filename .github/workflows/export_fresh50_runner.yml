@@ -1,9 +1,10 @@
-name: Export Fresh50 Research Runner
+name: Export Fresh50 V2 Research Runner
 
 on:
   pull_request:
     paths:
       - 'export_trigger/**'
+      - '.github/workflows/export_fresh50_runner.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,17 +17,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct runner
+      - name: Reconstruct V2 runner
         shell: bash
         run: |
           mkdir -p runner_export
-          cat payload/part* | base64 --decode | gzip --decompress > runner_export/fresh50_research.py
-          echo '56bd2328b9a868deb41adf51c01693548ed87177a61672b6c7eec9b590ef68e8  runner_export/fresh50_research.py' | sha256sum --check
+          cat payload_v2/part* | base64 --decode | gzip --decompress > runner_export/fresh50_research_v2.py
+          echo '8e83628ca631f01f8f8e01000674173a3e1254fb548c770c852da84bb8da3466  runner_export/fresh50_research_v2.py' | sha256sum --check
           cp requirements.txt runner_export/requirements.txt
 
-      - name: Upload source artifact
+      - name: Upload V2 source artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fresh50-runner-source
+          name: fresh50-runner-source-v2
           path: runner_export/
           retention-days: 7

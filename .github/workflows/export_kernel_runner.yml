@@ -1,0 +1,33 @@
+name: Export Fresh50 Kernel Runner
+
+on:
+  pull_request:
+    paths:
+      - 'kernel_export_trigger/**'
+      - '.github/workflows/export_kernel_runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct kernel runner
+        shell: bash
+        run: |
+          mkdir -p kernel_runner_export
+          cat payload_kernel/part* | base64 --decode | gzip --decompress > kernel_runner_export/fresh50_kernel_research.py
+          echo '8dcdf66b63069d99838b6fcadb0298072bd743d12632ee6f113aaeaed1a53915  kernel_runner_export/fresh50_kernel_research.py' | sha256sum --check
+          cp requirements.txt kernel_runner_export/requirements.txt
+
+      - name: Upload kernel source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh50-kernel-runner-source
+          path: kernel_runner_export/
+          retention-days: 7

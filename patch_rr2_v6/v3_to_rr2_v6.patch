@@ -1,0 +1,218 @@
+--- fresh50_research.py
++++ fresh50_research.py
+@@ -774,16 +774,22 @@
+ 
+ 
+ def config_grid() -> list[BarrierConfig]:
+-    configs: list[BarrierConfig] = []
+-    for sl in (0.90, 1.20, 1.50):
+-        for target in (0.60, 0.75, 0.90, 1.05, 1.25, 1.50):
+-            configs.append(BarrierConfig(
+-                config_id=f"sl{sl:.2f}_r{target:.2f}_fb0.0",
+-                sl_atr=sl,
+-                target_r=target,
+-                fill_buffer_bps=0.0,
+-            ))
+-    return configs
++    """Strict 1:2 reward/risk research grid.
++
++    Every configuration has an immutable +2R target and -1R stop. The only
++    structural variable is the ATR stop width. A worse post-close price is not
++    chased; historical fill is exact-or-better or the signal is canceled.
++    """
++    return [
++        BarrierConfig(
++            config_id=f"sl{sl:.2f}_r2.00_fb0.0",
++            sl_atr=sl,
++            target_r=2.0,
++            fill_buffer_bps=0.0,
++            max_hold_hours=0,
++        )
++        for sl in (0.90, 1.20, 1.50, 1.80, 2.10)
++    ]
+ 
+ 
+ def outcome_for_symbol(candidates: pd.DataFrame, raw: pd.DataFrame,
+@@ -796,7 +802,6 @@
+     lows = raw["low"].to_numpy(float)
+     closes = raw["close"].to_numpy(float)
+     close_times = raw["close_time"].to_numpy(np.int64)
+-    max_bars = int(config.max_hold_hours * 60 / 5)
+     result: list[dict[str, Any]] = []
+     for row in candidates.itertuples(index=False):
+         signal_ms = int(pd.Timestamp(row.signal_close).timestamp() * 1000)
+@@ -807,19 +812,59 @@
+         direction = int(row.direction)
+         first_open = float(opens[idx])
+         buffer = config.fill_buffer_bps / 10000.0
+-        fill_ok = (first_open <= planned * (1.0 - buffer)) if direction == 1 else (
+-            first_open >= planned * (1.0 + buffer)
++
++        # Structure is frozen at the completed signal candle close.
++        planned_risk_abs = float(row.atr15) * config.sl_atr
++        stop = planned - direction * planned_risk_abs
++        target = planned + direction * planned_risk_abs * config.target_r
++
++        # Exact-or-better first executable 5m-open proxy. Never chase a worse
++        # price and never wait for a later retrace.
++        price_ok = (
++            first_open <= planned * (1.0 - buffer)
++            if direction == 1
++            else first_open >= planned * (1.0 + buffer)
++        )
++        inside_contract = (
++            stop < first_open < target
++            if direction == 1
++            else target < first_open < stop
++        )
++        actual_risk_abs = abs(first_open - stop)
++        actual_reward_abs = abs(target - first_open)
++        risk_pct = (
++            actual_risk_abs / first_open * 100.0
++            if first_open > 0 and actual_risk_abs > 0
++            else math.nan
++        )
++        remaining_rr = (
++            actual_reward_abs / actual_risk_abs
++            if actual_risk_abs > 0
++            else -math.inf
++        )
++        # A mathematically better price can still be too close to structural
++        # invalidation. Allow at most 0.10R favorable drift toward the SL.
++        favorable_drift_r = (
++            direction * (planned - first_open) / planned_risk_abs
++            if planned_risk_abs > 0
++            else math.inf
++        )
++        stop_distance_preserved = actual_risk_abs >= planned_risk_abs * 0.90
++        fill_ok = bool(
++            price_ok
++            and inside_contract
++            and favorable_drift_r <= 0.10 + 1e-12
++            and stop_distance_preserved
++            and config.min_risk_pct <= risk_pct <= config.max_risk_pct
++            and remaining_rr >= 2.0
+         )
+-        risk_abs = float(row.atr15) * config.sl_atr
+-        risk_pct = risk_abs / planned * 100.0
+-        if risk_abs <= 0 or not (config.min_risk_pct <= risk_pct <= config.max_risk_pct):
+-            fill_ok = False
+-        stop = planned - direction * risk_abs
+-        target = planned + direction * risk_abs * config.target_r
++
+         if fill_ok:
+-            end_idx = min(idx + max_bars, len(raw))
+-            h = highs[idx:end_idx]
+-            l = lows[idx:end_idx]
++            # No timeout exit. Scan chronologically until immutable TP or SL is
++            # first touched. If neither resolves by the dataset endpoint, keep
++            # it unresolved and exclude it from performance metrics.
++            h = highs[idx:]
++            l = lows[idx:]
+             if direction == 1:
+                 stop_hits = np.flatnonzero(l <= stop)
+                 target_hits = np.flatnonzero(h >= target)
+@@ -830,20 +875,19 @@
+             si = int(stop_hits[0]) if len(stop_hits) else sentinel
+             ti = int(target_hits[0]) if len(target_hits) else sentinel
+             if si == sentinel and ti == sentinel:
+-                outcome = "timeout"
+-                exit_offset = max(0, len(h) - 1)
+-                exit_price = float(closes[idx + exit_offset])
+-                gross_r = direction * (exit_price - planned) / risk_abs
++                outcome = "unresolved"
++                gross_r = math.nan
++                exit_time = pd.NaT
+             elif si <= ti:
+                 outcome = "stop"
+                 gross_r = -1.0
+-                exit_offset = si
++                exit_idx = idx + si
++                exit_time = pd.to_datetime(int(close_times[exit_idx]), unit="ms", utc=True)
+             else:
+                 outcome = "target"
+-                gross_r = config.target_r
+-                exit_offset = ti
+-            exit_idx = idx + exit_offset
+-            exit_time = pd.to_datetime(int(close_times[exit_idx]), unit="ms", utc=True)
++                gross_r = remaining_rr
++                exit_idx = idx + ti
++                exit_time = pd.to_datetime(int(close_times[exit_idx]), unit="ms", utc=True)
+         else:
+             outcome = "no_fill"
+             gross_r = math.nan
+@@ -852,7 +896,13 @@
+             "candidate_id": row.candidate_id,
+             "fill_ok": bool(fill_ok),
+             "first_5m_open": first_open,
++            "actual_entry": first_open if fill_ok else math.nan,
+             "risk_pct": risk_pct,
++            "remaining_rr_at_entry": remaining_rr,
++            "favorable_drift_r": favorable_drift_r,
++            "stop_distance_preserved_ratio": (
++                actual_risk_abs / planned_risk_abs if planned_risk_abs > 0 else math.nan
++            ),
+             "stop": stop,
+             "target": target,
+             "outcome": outcome,
+@@ -1125,7 +1175,7 @@
+ def portfolio_select(frame: pd.DataFrame, threshold: float, cost_bps: float,
+                      split_days: float, max_open: int = 10) -> pd.DataFrame:
+     selected = frame[(frame["fill_ok"]) & (frame["probability"] >= threshold)].copy()
+-    selected = selected[selected["outcome"].isin(["target", "stop", "timeout"])]
++    selected = selected[selected["outcome"].isin(["target", "stop"])]
+     selected = selected.sort_values(
+         ["signal_close", "probability"], ascending=[True, False]
+     )
+@@ -1279,8 +1329,8 @@
+                     )
+                     hard_pass = bool(
+                         frequency_eligible
+-                        and m.accuracy_pct >= 60.0
+-                        and m.profit_factor >= 1.05
++                        and m.accuracy_pct >= 50.0
++                        and m.profit_factor >= 1.20
+                         and m.expectancy_r > 0
+                         and m.wilson95_low_pct >= 50.0
+                         and month_stats["active_months"] >= 2
+@@ -1449,17 +1499,17 @@
+     })
+     historical_pass = bool(
+         bool(chosen_row["validation_hard_pass"])
+-        and val_m.accuracy_pct >= 60.0
+-        and hold_m.accuracy_pct >= 60.0
++        and val_m.accuracy_pct >= 50.0
++        and hold_m.accuracy_pct >= 50.0
+         and val_m.trades_per_30d >= 40.0
+         and hold_m.trades_per_30d >= 40.0
+-        and val_m.profit_factor >= 1.05
+-        and hold_m.profit_factor >= 1.05
++        and val_m.profit_factor >= 1.20
++        and hold_m.profit_factor >= 1.20
+         and val_m.expectancy_r > 0
+         and hold_m.expectancy_r > 0
+         and holdout20_m.net_r > 0
+         and latest_m.trades_per_30d >= 40.0
+-        and latest_m.accuracy_pct >= 60.0
++        and latest_m.accuracy_pct >= 50.0
+     )
+ 
+     chosen = {
+@@ -1492,7 +1542,7 @@
+             ),
+             "symbol_id_feature": False,
+             "random_seed": RANDOM_SEED,
+-            "label": "net_r_after_12bps_gt_zero",
++            "label": "strict_2R_first_touch_net_r_after_12bps_gt_zero",
+         },
+     }
+     search_df.to_csv(output / "parameter_search.csv", index=False)
+@@ -1548,7 +1598,7 @@
+         wins=("is_win", "sum"),
+         targets=("outcome", lambda s: int((s == "target").sum())),
+         stops=("outcome", lambda s: int((s == "stop").sum())),
+-        timeouts=("outcome", lambda s: int((s == "timeout").sum())),
++        unresolved=("outcome", lambda s: int((s == "unresolved").sum())),
+         net_r=("net_r", "sum"),
+         symbols=("symbol", "nunique"),
+     )
