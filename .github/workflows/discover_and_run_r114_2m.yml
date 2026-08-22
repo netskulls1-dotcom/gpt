@@ -1,0 +1,135 @@
+name: Discover Package and Run R114 2M Top50
+
+on:
+  push:
+    branches:
+      - photon-r114f-six-tf-rest-pilot-20260822
+    paths:
+      - '.github/workflows/discover_and_run_r114_2m.yml'
+      - 'trigger/discover_r114_2m.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  discover-and-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Discover and reconstruct an R114 package
+        id: discover
+        shell: bash
+        run: |
+          set -uo pipefail
+          rm -rf reconstructed_candidates runner_discovered discovery
+          mkdir -p reconstructed_candidates discovery
+          find . -maxdepth 5 -type f -printf '%p %s bytes\n' | sort > discovery/repository_inventory.txt
+
+          runner_script="$(find . -type f -path '*/tools/run_r114_two_month_backtest_first.py' -print -quit || true)"
+
+          if [ -z "$runner_script" ]; then
+            n=0
+            while IFS= read -r first_part; do
+              src_dir="$(dirname "$first_part")"
+              n=$((n+1))
+              out="reconstructed_candidates/candidate_${n}"
+              mkdir -p "$out/extracted"
+              find "$src_dir" -maxdepth 1 -type f -name 'part*' -print0 | sort -z -V | xargs -0 cat > "$out/joined.txt" || true
+              if base64 --decode "$out/joined.txt" > "$out/payload.bin" 2>"$out/base64_error.txt"; then
+                file "$out/payload.bin" > "$out/file_type.txt" || true
+                tar -xJf "$out/payload.bin" -C "$out/extracted" 2>"$out/tar_xz_error.txt" || \
+                tar -xzf "$out/payload.bin" -C "$out/extracted" 2>"$out/tar_gz_error.txt" || \
+                tar -xf  "$out/payload.bin" -C "$out/extracted" 2>"$out/tar_error.txt" || \
+                unzip -q "$out/payload.bin" -d "$out/extracted" 2>"$out/unzip_error.txt" || true
+                runner_script="$(find "$out/extracted" -type f -path '*/tools/run_r114_two_month_backtest_first.py' -print -quit || true)"
+                if [ -n "$runner_script" ]; then
+                  break
+                fi
+              fi
+            done < <(find . -type f -name 'part00' -o -name 'part000' | sort -V)
+          fi
+
+          if [ -z "$runner_script" ]; then
+            find reconstructed_candidates -maxdepth 4 -type f -printf '%p %s bytes\n' | sort > discovery/reconstruction_inventory.txt || true
+            echo 'RUNNER_NOT_FOUND' > discovery/discovery_status.txt
+            exit 21
+          fi
+
+          runner_root="$(cd "$(dirname "$runner_script")/.." && pwd)"
+          echo "$runner_script" > discovery/runner_script.txt
+          echo "$runner_root" > discovery/runner_root.txt
+          echo 'RUNNER_FOUND' > discovery/discovery_status.txt
+          echo "runner_root=$runner_root" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        if: always() && steps.discover.outputs.runner_root != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        if: always() && steps.discover.outputs.runner_root != ''
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip
+          root='${{ steps.discover.outputs.runner_root }}'
+          if [ -s "$root/requirements.txt" ]; then python -m pip install -r "$root/requirements.txt"; fi
+          python -m pip install requests numpy pandas
+
+      - name: Run exact two-month Top-50 backtest
+        if: always() && steps.discover.outputs.runner_root != ''
+        shell: bash
+        run: |
+          set -o pipefail
+          root='${{ steps.discover.outputs.runner_root }}'
+          cd "$root"
+          python tools/run_r114_two_month_backtest_first.py all --basket-mode eligible 2>&1 | tee "$GITHUB_WORKSPACE/r114_discovery_console.log"
+
+      - name: Collect discovery and backtest evidence
+        if: always()
+        shell: bash
+        run: |
+          rm -rf published_r114_discovery_stage
+          mkdir -p published_r114_discovery_stage/output
+          cp -a discovery/. published_r114_discovery_stage/discovery/ 2>/dev/null || true
+          cp r114_discovery_console.log published_r114_discovery_stage/console.log 2>/dev/null || true
+          root='${{ steps.discover.outputs.runner_root }}'
+          if [ -n "$root" ]; then
+            cp -a "$root/evidence/r114_2month_top50/eligible/." published_r114_discovery_stage/ 2>/dev/null || true
+            cp -a "$root/output_r114_2m_eligible/." published_r114_discovery_stage/output/ 2>/dev/null || true
+          fi
+          printf '%s\n' '${{ job.status }}' > published_r114_discovery_stage/GITHUB_JOB_STATUS.txt
+          printf '%s\n' '${{ github.sha }}' > published_r114_discovery_stage/SOURCE_COMMIT_SHA.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > published_r114_discovery_stage/PUBLISHED_AT_UTC.txt
+          find published_r114_discovery_stage -maxdepth 5 -type f -printf '%p %s bytes\n' | sort > published_r114_discovery_stage/FILE_LIST.txt
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r114-discovery-two-month-top50
+          path: published_r114_discovery_stage/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish evidence to branch
+        if: always()
+        shell: bash
+        run: |
+          rm -rf published_r114_discovery
+          mv published_r114_discovery_stage published_r114_discovery
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f published_r114_discovery
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish R114 package discovery and two-month backtest result'
+            git push
+          fi
