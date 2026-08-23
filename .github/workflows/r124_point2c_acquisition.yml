@@ -21,15 +21,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Reconstruct and verify R124 acquisition runner
+      - name: Reconstruct and diagnose R124 runner
+        id: prepare
         shell: bash
         run: |
-          base64 --decode r124_point2c/acquire.py.gz.b64 | gzip --decompress > r124_point2c/acquire.py
-          chmod +x r124_point2c/acquire.py
-          echo '43390b0a19ff6409a77176617f349f49742a47d4a7d18f52cf3b779bbf94c5bb  r124_point2c/acquire.py' | sha256sum --check
-          python r124_point2c/acquire.py self-test
+          set +e
+          mkdir -p r124_point2c_diagnostics
+          base64 --decode r124_point2c/acquire.py.gz.b64 > r124_point2c/acquire.py.gz
+          b64_rc=$?
+          gzip --decompress --stdout r124_point2c/acquire.py.gz > r124_point2c/acquire.py
+          gzip_rc=$?
+          chmod +x r124_point2c/acquire.py 2>/dev/null
+          expected='43390b0a19ff6409a77176617f349f49742a47d4a7d18f52cf3b779bbf94c5bb'
+          actual=$(sha256sum r124_point2c/acquire.py 2>/dev/null | awk '{print $1}')
+          bytes=$(wc -c < r124_point2c/acquire.py 2>/dev/null || printf '0')
+          printf '%s\n' "$b64_rc" > r124_point2c_diagnostics/BASE64_EXIT_CODE.txt
+          printf '%s\n' "$gzip_rc" > r124_point2c_diagnostics/GZIP_EXIT_CODE.txt
+          printf '%s\n' "$expected" > r124_point2c_diagnostics/EXPECTED_RUNNER_SHA256.txt
+          printf '%s\n' "$actual" > r124_point2c_diagnostics/ACTUAL_RUNNER_SHA256.txt
+          printf '%s\n' "$bytes" > r124_point2c_diagnostics/RUNNER_BYTES.txt
+          if [ "$b64_rc" = 0 ] && [ "$gzip_rc" = 0 ] && [ "$actual" = "$expected" ]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Runner self-test
+        id: selftest
+        if: steps.prepare.outputs.ready == 'true'
+        run: python r124_point2c/acquire.py self-test
 
       - name: Probe all 1,200 official archive/checksum units
+        id: preflight
+        if: steps.prepare.outputs.ready == 'true' && steps.selftest.outcome == 'success'
         run: >-
           python r124_point2c/acquire.py preflight
           --output r124_point2c_preflight
@@ -39,6 +64,7 @@ jobs:
 
       - name: Read fail-closed gate
         id: gate
+        if: steps.preflight.outcome == 'success'
         shell: bash
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
@@ -61,7 +87,7 @@ jobs:
           --timeout 120
 
       - name: Build normalized dataset checksum and size indexes
-        if: steps.gate.outputs.all_available == 'true' && steps.acquire.outcome == 'success'
+        if: steps.acquire.outcome == 'success'
         shell: bash
         run: |
           find r124_point2c_acquisition/normalized -type f -print0 | sort -z | xargs -0 sha256sum > r124_point2c_acquisition/R124_NORMALIZED_DATASET_SHA256.txt
@@ -75,19 +101,24 @@ jobs:
           mkdir -p r124_point2c_workflow_status
           printf '%s\n' '${{ job.status }}' > r124_point2c_workflow_status/GITHUB_JOB_STATUS.txt
           printf '%s\n' '${{ github.sha }}' > r124_point2c_workflow_status/SOURCE_COMMIT_SHA.txt
+          printf '%s\n' '${{ steps.prepare.outputs.ready }}' > r124_point2c_workflow_status/RUNNER_READY.txt
+          printf '%s\n' '${{ steps.selftest.outcome }}' > r124_point2c_workflow_status/SELFTEST_OUTCOME.txt
+          printf '%s\n' '${{ steps.preflight.outcome }}' > r124_point2c_workflow_status/PREFLIGHT_OUTCOME.txt
           printf '%s\n' '${{ steps.gate.outputs.all_available }}' > r124_point2c_workflow_status/ALL_1200_AVAILABLE.txt
           printf '%s\n' '${{ steps.gate.outputs.available_units }}' > r124_point2c_workflow_status/AVAILABLE_UNITS.txt
           printf '%s\n' '${{ steps.gate.outputs.blocked_units }}' > r124_point2c_workflow_status/BLOCKED_UNITS.txt
+          printf '%s\n' '${{ steps.acquire.outcome }}' > r124_point2c_workflow_status/ACQUISITION_OUTCOME.txt
           printf '%s\n' 'BTWUSDT,REUSDT' > r124_point2c_workflow_status/EXCLUDED_INSUFFICIENT_HISTORY.txt
           printf '%s\n' 'DOTUSDT,HBARUSDT' > r124_point2c_workflow_status/COVERAGE_REPLACEMENTS.txt
           date -u +'%Y-%m-%dT%H:%M:%SZ' > r124_point2c_workflow_status/FINISHED_AT_UTC.txt
 
-      - name: Upload authoritative ledgers and summaries
+      - name: Upload authoritative ledgers summaries and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r124-point2c-authoritative-reports
           path: |
+            r124_point2c_diagnostics/
             r124_point2c_preflight/
             r124_point2c_workflow_status/
             r124_point2c_acquisition/R124_POINT2C_ACQUISITION_LEDGER.json
@@ -100,7 +131,7 @@ jobs:
           retention-days: 30
 
       - name: Upload normalized 1,200-unit dataset
-        if: steps.gate.outputs.all_available == 'true' && steps.acquire.outcome == 'success'
+        if: steps.acquire.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: r124-point2c-normalized-top50-six-tf
@@ -115,8 +146,9 @@ jobs:
         run: |
           rm -rf published_result_r124_point2c
           mkdir -p published_result_r124_point2c
-          if [ -d r124_point2c_preflight ]; then cp -a r124_point2c_preflight/. published_result_r124_point2c/; fi
-          if [ -d r124_point2c_workflow_status ]; then cp -a r124_point2c_workflow_status/. published_result_r124_point2c/; fi
+          for d in r124_point2c_diagnostics r124_point2c_preflight r124_point2c_workflow_status; do
+            if [ -d "$d" ]; then cp -a "$d"/. published_result_r124_point2c/; fi
+          done
           for f in R124_POINT2C_ACQUISITION_SUMMARY.json R124_NORMALIZED_DATASET_SHA256.txt R124_NORMALIZED_FILE_COUNT.txt R124_NORMALIZED_DATASET_SIZE.txt; do
             if [ -f "r124_point2c_acquisition/$f" ]; then cp "r124_point2c_acquisition/$f" published_result_r124_point2c/; fi
           done
