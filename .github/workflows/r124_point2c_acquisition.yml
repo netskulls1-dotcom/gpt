@@ -27,20 +27,24 @@ jobs:
         run: |
           set +e
           mkdir -p r124_point2c_diagnostics
-          base64 --decode r124_point2c/acquire.py.gz.b64 > r124_point2c/acquire.py.gz
-          b64_rc=$?
+          gzip --test r124_point2c/acquire.py.gz
+          gzip_test_rc=$?
           gzip --decompress --stdout r124_point2c/acquire.py.gz > r124_point2c/acquire.py
           gzip_rc=$?
           chmod +x r124_point2c/acquire.py 2>/dev/null
+          expected_gzip='67a5f4a147a99ae8a43faedb6daee14b86f02528ec71fe2322c609b881506a90'
+          actual_gzip=$(sha256sum r124_point2c/acquire.py.gz 2>/dev/null | awk '{print $1}')
           expected='43390b0a19ff6409a77176617f349f49742a47d4a7d18f52cf3b779bbf94c5bb'
           actual=$(sha256sum r124_point2c/acquire.py 2>/dev/null | awk '{print $1}')
           bytes=$(wc -c < r124_point2c/acquire.py 2>/dev/null || printf '0')
-          printf '%s\n' "$b64_rc" > r124_point2c_diagnostics/BASE64_EXIT_CODE.txt
+          printf '%s\n' "$gzip_test_rc" > r124_point2c_diagnostics/GZIP_TEST_EXIT_CODE.txt
           printf '%s\n' "$gzip_rc" > r124_point2c_diagnostics/GZIP_EXIT_CODE.txt
+          printf '%s\n' "$expected_gzip" > r124_point2c_diagnostics/EXPECTED_GZIP_SHA256.txt
+          printf '%s\n' "$actual_gzip" > r124_point2c_diagnostics/ACTUAL_GZIP_SHA256.txt
           printf '%s\n' "$expected" > r124_point2c_diagnostics/EXPECTED_RUNNER_SHA256.txt
           printf '%s\n' "$actual" > r124_point2c_diagnostics/ACTUAL_RUNNER_SHA256.txt
           printf '%s\n' "$bytes" > r124_point2c_diagnostics/RUNNER_BYTES.txt
-          if [ "$b64_rc" = 0 ] && [ "$gzip_rc" = 0 ] && [ "$actual" = "$expected" ]; then
+          if [ "$gzip_test_rc" = 0 ] && [ "$gzip_rc" = 0 ] && [ "$actual_gzip" = "$expected_gzip" ] && [ "$actual" = "$expected" ]; then
             echo 'ready=true' >> "$GITHUB_OUTPUT"
           else
             echo 'ready=false' >> "$GITHUB_OUTPUT"
