@@ -1,0 +1,232 @@
+{
+  "schema": "photon.r124.point2c.v1.preflight_summary",
+  "release": "V20979 R124",
+  "created_at_utc": "2026-08-23T13:02:51.760102+00:00",
+  "frozen_basket_sha256": "dfdab4f598855c26b5a3c8113f08063638b2d485746f8bfd98565fa2c347a29a",
+  "symbol_count": 50,
+  "intervals": [
+    "1d",
+    "4h",
+    "1h",
+    "15m",
+    "5m",
+    "1m"
+  ],
+  "months": [
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07"
+  ],
+  "unit_count": 1200,
+  "status_counts": {
+    "AVAILABLE": 1200
+  },
+  "available_units": 1200,
+  "unavailable_or_failed_units": 0,
+  "all_1200_official_units_available": true,
+  "point2c_full_acquisition_allowed": true,
+  "point2c_status": "PREFLIGHT_PASS_ALL_AVAILABLE",
+  "accuracy_allowed": false,
+  "accuracy_block_reason": "POINT2C_DOWNLOAD_NORMALIZE_POINT3_AUDIT_REQUIRED",
+  "partial_basket_accuracy_allowed": false,
+  "silent_symbol_substitution": false,
+  "basket_policy": "VERSIONED_HISTORICAL_COVERAGE_QUALIFIED_TOP50",
+  "excluded_for_insufficient_history": [
+    "BTWUSDT",
+    "REUSDT"
+  ],
+  "coverage_replacements_in_source_rank_order": [
+    "DOTUSDT",
+    "HBARUSDT"
+  ],
+  "thomas_executed": false,
+  "strategy_core_mutated": false,
+  "by_symbol": {
+    "BTCUSDT": {
+      "AVAILABLE": 24
+    },
+    "ETHUSDT": {
+      "AVAILABLE": 24
+    },
+    "XRPUSDT": {
+      "AVAILABLE": 24
+    },
+    "SOLUSDT": {
+      "AVAILABLE": 24
+    },
+    "HYPEUSDT": {
+      "AVAILABLE": 24
+    },
+    "ZECUSDT": {
+      "AVAILABLE": 24
+    },
+    "ENAUSDT": {
+      "AVAILABLE": 24
+    },
+    "ONGUSDT": {
+      "AVAILABLE": 24
+    },
+    "DOGEUSDT": {
+      "AVAILABLE": 24
+    },
+    "BNBUSDT": {
+      "AVAILABLE": 24
+    },
+    "1000PEPEUSDT": {
+      "AVAILABLE": 24
+    },
+    "SUIUSDT": {
+      "AVAILABLE": 24
+    },
+    "BCHUSDT": {
+      "AVAILABLE": 24
+    },
+    "LINKUSDT": {
+      "AVAILABLE": 24
+    },
+    "ADAUSDT": {
+      "AVAILABLE": 24
+    },
+    "PUMPUSDT": {
+      "AVAILABLE": 24
+    },
+    "BOMEUSDT": {
+      "AVAILABLE": 24
+    },
+    "HEMIUSDT": {
+      "AVAILABLE": 24
+    },
+    "WLDUSDT": {
+      "AVAILABLE": 24
+    },
+    "NEARUSDT": {
+      "AVAILABLE": 24
+    },
+    "ASTERUSDT": {
+      "AVAILABLE": 24
+    },
+    "TRUMPUSDT": {
+      "AVAILABLE": 24
+    },
+    "ACEUSDT": {
+      "AVAILABLE": 24
+    },
+    "AVAXUSDT": {
+      "AVAILABLE": 24
+    },
+    "AAVEUSDT": {
+      "AVAILABLE": 24
+    },
+    "BEATUSDT": {
+      "AVAILABLE": 24
+    },
+    "NEIROUSDT": {
+      "AVAILABLE": 24
+    },
+    "TAOUSDT": {
+      "AVAILABLE": 24
+    },
+    "PEOPLEUSDT": {
+      "AVAILABLE": 24
+    },
+    "ONDOUSDT": {
+      "AVAILABLE": 24
+    },
+    "UNIUSDT": {
+      "AVAILABLE": 24
+    },
+    "LTCUSDT": {
+      "AVAILABLE": 24
+    },
+    "PAXGUSDT": {
+      "AVAILABLE": 24
+    },
+    "PENGUUSDT": {
+      "AVAILABLE": 24
+    },
+    "LITUSDT": {
+      "AVAILABLE": 24
+    },
+    "CRVUSDT": {
+      "AVAILABLE": 24
+    },
+    "TUTUSDT": {
+      "AVAILABLE": 24
+    },
+    "FILUSDT": {
+      "AVAILABLE": 24
+    },
+    "XLMUSDT": {
+      "AVAILABLE": 24
+    },
+    "AVAAIUSDT": {
+      "AVAILABLE": 24
+    },
+    "BBUSDT": {
+      "AVAILABLE": 24
+    },
+    "1000SHIBUSDT": {
+      "AVAILABLE": 24
+    },
+    "XPLUSDT": {
+      "AVAILABLE": 24
+    },
+    "GALAUSDT": {
+      "AVAILABLE": 24
+    },
+    "ONTUSDT": {
+      "AVAILABLE": 24
+    },
+    "FARTCOINUSDT": {
+      "AVAILABLE": 24
+    },
+    "FETUSDT": {
+      "AVAILABLE": 24
+    },
+    "WLFIUSDT": {
+      "AVAILABLE": 24
+    },
+    "DOTUSDT": {
+      "AVAILABLE": 24
+    },
+    "HBARUSDT": {
+      "AVAILABLE": 24
+    }
+  },
+  "by_interval": {
+    "1d": {
+      "AVAILABLE": 200
+    },
+    "4h": {
+      "AVAILABLE": 200
+    },
+    "1h": {
+      "AVAILABLE": 200
+    },
+    "15m": {
+      "AVAILABLE": 200
+    },
+    "5m": {
+      "AVAILABLE": 200
+    },
+    "1m": {
+      "AVAILABLE": 200
+    }
+  },
+  "by_month": {
+    "2026-04": {
+      "AVAILABLE": 300
+    },
+    "2026-05": {
+      "AVAILABLE": 300
+    },
+    "2026-06": {
+      "AVAILABLE": 300
+    },
+    "2026-07": {
+      "AVAILABLE": 300
+    }
+  },
+  "first_100_unavailable_or_failed": []
+}

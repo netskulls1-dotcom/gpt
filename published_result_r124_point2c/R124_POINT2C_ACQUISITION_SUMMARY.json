@@ -1,0 +1,25 @@
+{
+  "schema": "photon.r124.point2c.v1.acquisition_summary",
+  "release": "V20979 R124",
+  "created_at_utc": "2026-08-23T13:04:05.085694+00:00",
+  "unit_count": 1200,
+  "status_counts": {
+    "NORMALIZED": 1200
+  },
+  "normalized_units": 1200,
+  "all_1200_normalized": true,
+  "point2c_status": "DONE_PASS_ALL_1200_NORMALIZED",
+  "point3_audit_allowed": true,
+  "accuracy_allowed": false,
+  "basket_policy": "VERSIONED_HISTORICAL_COVERAGE_QUALIFIED_TOP50",
+  "excluded_for_insufficient_history": [
+    "BTWUSDT",
+    "REUSDT"
+  ],
+  "coverage_replacements_in_source_rank_order": [
+    "DOTUSDT",
+    "HBARUSDT"
+  ],
+  "thomas_executed": false,
+  "strategy_core_mutated": false
+}
