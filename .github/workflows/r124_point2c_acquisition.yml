@@ -1,0 +1,129 @@
+name: R124 Coverage-Qualified Top50 Point2C Acquisition
+
+on:
+  push:
+    paths:
+      - 'r124_point2c/**'
+      - '.github/workflows/r124_point2c_acquisition.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  point2c:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct and verify R124 acquisition runner
+        shell: bash
+        run: |
+          base64 --decode r124_point2c/acquire.py.gz.b64 | gzip --decompress > r124_point2c/acquire.py
+          chmod +x r124_point2c/acquire.py
+          echo '43390b0a19ff6409a77176617f349f49742a47d4a7d18f52cf3b779bbf94c5bb  r124_point2c/acquire.py' | sha256sum --check
+          python r124_point2c/acquire.py self-test
+
+      - name: Probe all 1,200 official archive/checksum units
+        run: >-
+          python r124_point2c/acquire.py preflight
+          --output r124_point2c_preflight
+          --workers 32
+          --retries 4
+          --timeout 30
+
+      - name: Read fail-closed gate
+        id: gate
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          p=json.load(open('r124_point2c_preflight/R124_POINT2C_PREFLIGHT_SUMMARY.json',encoding='utf-8'))
+          print('all_available=' + ('true' if p['all_1200_official_units_available'] else 'false'))
+          print('available_units=' + str(p['available_units']))
+          print('blocked_units=' + str(p['unavailable_or_failed_units']))
+          PY
+
+      - name: Download checksum-verify CRC-verify and normalize 1,200 units
+        id: acquire
+        if: steps.gate.outputs.all_available == 'true'
+        run: >-
+          python r124_point2c/acquire.py acquire
+          --preflight r124_point2c_preflight
+          --output r124_point2c_acquisition
+          --workers 16
+          --retries 4
+          --timeout 120
+
+      - name: Build normalized dataset checksum and size indexes
+        if: steps.gate.outputs.all_available == 'true' && steps.acquire.outcome == 'success'
+        shell: bash
+        run: |
+          find r124_point2c_acquisition/normalized -type f -print0 | sort -z | xargs -0 sha256sum > r124_point2c_acquisition/R124_NORMALIZED_DATASET_SHA256.txt
+          find r124_point2c_acquisition/normalized -type f | wc -l > r124_point2c_acquisition/R124_NORMALIZED_FILE_COUNT.txt
+          du -sh r124_point2c_acquisition/normalized > r124_point2c_acquisition/R124_NORMALIZED_DATASET_SIZE.txt
+
+      - name: Write workflow execution status
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p r124_point2c_workflow_status
+          printf '%s\n' '${{ job.status }}' > r124_point2c_workflow_status/GITHUB_JOB_STATUS.txt
+          printf '%s\n' '${{ github.sha }}' > r124_point2c_workflow_status/SOURCE_COMMIT_SHA.txt
+          printf '%s\n' '${{ steps.gate.outputs.all_available }}' > r124_point2c_workflow_status/ALL_1200_AVAILABLE.txt
+          printf '%s\n' '${{ steps.gate.outputs.available_units }}' > r124_point2c_workflow_status/AVAILABLE_UNITS.txt
+          printf '%s\n' '${{ steps.gate.outputs.blocked_units }}' > r124_point2c_workflow_status/BLOCKED_UNITS.txt
+          printf '%s\n' 'BTWUSDT,REUSDT' > r124_point2c_workflow_status/EXCLUDED_INSUFFICIENT_HISTORY.txt
+          printf '%s\n' 'DOTUSDT,HBARUSDT' > r124_point2c_workflow_status/COVERAGE_REPLACEMENTS.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > r124_point2c_workflow_status/FINISHED_AT_UTC.txt
+
+      - name: Upload authoritative ledgers and summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r124-point2c-authoritative-reports
+          path: |
+            r124_point2c_preflight/
+            r124_point2c_workflow_status/
+            r124_point2c_acquisition/R124_POINT2C_ACQUISITION_LEDGER.json
+            r124_point2c_acquisition/R124_POINT2C_ACQUISITION_LEDGER.csv
+            r124_point2c_acquisition/R124_POINT2C_ACQUISITION_SUMMARY.json
+            r124_point2c_acquisition/R124_NORMALIZED_DATASET_SHA256.txt
+            r124_point2c_acquisition/R124_NORMALIZED_FILE_COUNT.txt
+            r124_point2c_acquisition/R124_NORMALIZED_DATASET_SIZE.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload normalized 1,200-unit dataset
+        if: steps.gate.outputs.all_available == 'true' && steps.acquire.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r124-point2c-normalized-top50-six-tf
+          path: r124_point2c_acquisition/normalized/
+          compression-level: 6
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish authoritative status to repository
+        if: always() && github.event_name == 'push'
+        shell: bash
+        run: |
+          rm -rf published_result_r124_point2c
+          mkdir -p published_result_r124_point2c
+          if [ -d r124_point2c_preflight ]; then cp -a r124_point2c_preflight/. published_result_r124_point2c/; fi
+          if [ -d r124_point2c_workflow_status ]; then cp -a r124_point2c_workflow_status/. published_result_r124_point2c/; fi
+          for f in R124_POINT2C_ACQUISITION_SUMMARY.json R124_NORMALIZED_DATASET_SHA256.txt R124_NORMALIZED_FILE_COUNT.txt R124_NORMALIZED_DATASET_SIZE.txt; do
+            if [ -f "r124_point2c_acquisition/$f" ]; then cp "r124_point2c_acquisition/$f" published_result_r124_point2c/; fi
+          done
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f published_result_r124_point2c
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish R124 coverage-qualified Point2C result'
+            git push
+          fi
