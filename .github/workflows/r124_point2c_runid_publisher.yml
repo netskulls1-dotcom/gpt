@@ -1,0 +1,39 @@
+name: R124 Point2C Run ID Publisher
+
+on:
+  workflow_run:
+    workflows:
+      - R124 Coverage-Qualified Top50 Point2C Acquisition
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  publish-run-id:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Publish completed acquisition run identity
+        shell: bash
+        run: |
+          mkdir -p published_result_r124_point2c
+          printf '%s\n' '${{ github.event.workflow_run.id }}' > published_result_r124_point2c/GITHUB_WORKFLOW_RUN_ID.txt
+          printf '%s\n' '${{ github.event.workflow_run.run_number }}' > published_result_r124_point2c/GITHUB_WORKFLOW_RUN_NUMBER.txt
+          printf '%s\n' '${{ github.event.workflow_run.run_attempt }}' > published_result_r124_point2c/GITHUB_WORKFLOW_RUN_ATTEMPT.txt
+          printf '%s\n' '${{ github.event.workflow_run.conclusion }}' > published_result_r124_point2c/GITHUB_WORKFLOW_CONCLUSION.txt
+          printf '%s\n' '${{ github.event.workflow_run.head_sha }}' > published_result_r124_point2c/GITHUB_WORKFLOW_HEAD_SHA.txt
+          printf '%s\n' '${{ github.event.workflow_run.html_url }}' > published_result_r124_point2c/GITHUB_WORKFLOW_URL.txt
+          date -u +'%Y-%m-%dT%H:%M:%SZ' > published_result_r124_point2c/RUN_ID_PUBLISHED_AT_UTC.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f published_result_r124_point2c
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish R124 Point2C workflow run identity'
+            git push
+          fi
