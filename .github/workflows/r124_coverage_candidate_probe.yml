@@ -1,0 +1,45 @@
+name: R124 Historical Coverage Candidate Probe
+
+on:
+  push:
+    paths:
+      - 'r124_coverage_candidates/**'
+      - '.github/workflows/r124_coverage_candidate_probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source and probe ranks 51-56
+        shell: bash
+        run: |
+          echo 'e80fddcef1aeed6e8b38538c8a5b4b38554e41f91d9c22c3a578f3ea8d4f7c89  r124_coverage_candidates/probe.py' | sha256sum --check
+          python r124_coverage_candidates/probe.py
+      - name: Upload candidate coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r124-coverage-candidate-probe
+          path: r124_candidate_probe_output/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish report to repository
+        if: always() && github.event_name == 'push'
+        shell: bash
+        run: |
+          rm -rf published_result_r124_candidates
+          mkdir -p published_result_r124_candidates
+          cp -a r124_candidate_probe_output/. published_result_r124_candidates/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f published_result_r124_candidates
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publish R124 historical coverage candidate probe'
+            git push
+          fi
